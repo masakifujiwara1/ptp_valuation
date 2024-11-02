@@ -12,7 +12,7 @@ import glob
 import torch.distributions.multivariate_normal as torchdist
 from utils import * 
 from metrics import * 
-from model import social_stgcnn
+from model_depth_fc_fix import GAT_TimeSeriesLayer
 import copy
 
 import roslib
@@ -24,8 +24,10 @@ dataset_dir = pkg_path + '/datasets/'
 model_path = roslib.packages.get_pkg_dir('ptp_ros1')
 model_dir = model_path + '/checkpoint/'
 
-paths = [model_dir + '*social-stgcnn*']
+paths = [model_dir + '*social-stgcnn-eth']
 KSTEPS=20
+
+device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
 
 def test(KSTEPS=20):
     global loader_test,model
@@ -37,7 +39,7 @@ def test(KSTEPS=20):
     for batch in loader_test: 
         step+=1
         #Get data
-        batch = [tensor.cuda() for tensor in batch]
+        batch = [tensor.to(device) for tensor in batch]
         obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,\
          loss_mask,V_obs,A_obs,V_tr,A_tr = batch
 
@@ -47,13 +49,14 @@ def test(KSTEPS=20):
         #Forward
         #V_obs = batch,seq,node,feat
         #V_obs_tmp = batch,feat,seq,node
-        V_obs_tmp =V_obs.permute(0,3,1,2)
+        # V_obs_tmp =V_obs.permute(0,3,1,2)
 
-        V_pred,_ = model(V_obs_tmp,A_obs.squeeze())
+        V_pred = model(V_obs,A_obs)
+        # V_pred,_ = model(V_obs_tmp,A_obs.squeeze())
         # print(V_pred.shape)
         # torch.Size([1, 5, 12, 2])
         # torch.Size([12, 2, 5])
-        V_pred = V_pred.permute(0,2,3,1)
+        # V_pred = V_pred.permute(0,2,3,1)
         # torch.Size([1, 12, 2, 5])>>seq,node,feat
         # V_pred= torch.rand_like(V_tr).cuda()
 
@@ -72,7 +75,7 @@ def test(KSTEPS=20):
         sy = torch.exp(V_pred[:,:,3]) #sy
         corr = torch.tanh(V_pred[:,:,4]) #corr
         
-        cov = torch.zeros(V_pred.shape[0],V_pred.shape[1],2,2).cuda()
+        cov = torch.zeros(V_pred.shape[0],V_pred.shape[1],2,2).to(device)
         cov[:,:,0,0]= sx*sx
         cov[:,:,0,1]= corr*sx*sy
         cov[:,:,1,0]= corr*sx*sy
@@ -174,10 +177,11 @@ for feta in range(len(paths)):
         #Data prep     
         obs_seq_len = args.obs_seq_len
         pred_seq_len = args.pred_seq_len
-        data_set = './datasets/'+args.dataset+'/'
+        # data_set = './datasets/'+args.dataset+'/'
 
         dset_test = TrajectoryDataset(
-                data_set+'test/',
+                # data_set+'test/',
+                dataset_dir,
                 obs_len=obs_seq_len,
                 pred_len=pred_seq_len,
                 skip=1,norm_lap_matr=True)
@@ -190,11 +194,9 @@ for feta in range(len(paths)):
 
 
 
-        #Defining the model 
-        model = social_stgcnn(n_stgcnn =args.n_stgcnn,n_txpcnn=args.n_txpcnn,
-        output_feat=args.output_size,seq_len=args.obs_seq_len,
-        kernel_size=args.kernel_size,pred_seq_len=args.pred_seq_len).cuda()
-        model.load_state_dict(torch.load(model_path))
+        #Defining the model
+        model = GAT_TimeSeriesLayer(in_features=2, hidden_features=16, out_features=5, obs_seq_len=8, pred_seq_len=12, num_heads=2).to(device)
+        model.load_state_dict(torch.load(model_path, map_location=device))
 
 
         ade_ =999999
