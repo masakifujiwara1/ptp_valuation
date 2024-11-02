@@ -1,50 +1,219 @@
 #!/usr/bin/env python3
 import os
+import math
 import sys
-import argparse
-
-import rospy
-import roslib
-roslib.load_manifest('ptp_make_dataset')
+import torch
 import numpy as np
-from ptp_msgs.msg import PedestrianArray
+from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
+import pickle
+import argparse
+import glob
+import torch.distributions.multivariate_normal as torchdist
+from utils import * 
+from metrics import * 
+from model_depth_fc_fix import GAT_TimeSeriesLayer
+import copy
 
-class MakeDataset():
-    def __init__(self):
-        rospy.init_node('make_dataset_node', anonymous=True)
-        self.curr_ped_sub = rospy.Subscriber(
-            '/curr_ped',
-            PedestrianArray,
-            self.curr_ped_callback)
+import roslib
+roslib.load_manifest('ptp_ros1')
 
-        if not rospy.has_param('~tag'):
-            rospy.set_param('~tag', 'hoge')
-        self.tag = rospy.get_param('~tag')
+pkg_path = roslib.packages.get_pkg_dir('ptp_make_dataset')
+dataset_dir = pkg_path + '/datasets/'
 
-        self.pkg_path = roslib.packages.get_pkg_dir('ptp_make_dataset')
+model_path = roslib.packages.get_pkg_dir('ptp_ros1')
+model_dir = model_path + '/checkpoint/'
 
-        self.dataset_dir = self.pkg_path + '/datasets/' 
+paths = [model_dir + '*deploy-raw*']
+KSTEPS=20
 
-        if not os.path.exists(self.dataset_dir):
-            os.makedirs(self.dataset_dir)
+device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+
+def test(KSTEPS=20):
+    global loader_test,model
+    model.eval()
+    ade_bigls = []
+    fde_bigls = []
+    raw_data_dict = {}
+    step =0 
+    for batch in loader_test: 
+        step+=1
+        #Get data
+        batch = [tensor.to(device) for tensor in batch]
+        obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,\
+         loss_mask,V_obs,A_obs,V_tr,A_tr = batch
+
+
+        num_of_objs = obs_traj_rel.shape[1]
+
+        #Forward
+        #V_obs = batch,seq,node,feat
+        #V_obs_tmp = batch,feat,seq,node
+        # V_obs_tmp =V_obs.permute(0,3,1,2)
+
+        V_pred = model(V_obs,A_obs)
+        # V_pred,_ = model(V_obs_tmp,A_obs.squeeze())
+        # print(V_pred.shape)
+        # torch.Size([1, 5, 12, 2])
+        # torch.Size([12, 2, 5])
+        # V_pred = V_pred.permute(0,2,3,1)
+        # torch.Size([1, 12, 2, 5])>>seq,node,feat
+        # V_pred= torch.rand_like(V_tr).cuda()
+
+
+        V_tr = V_tr.squeeze()
+        A_tr = A_tr.squeeze()
+        V_pred = V_pred.squeeze()
+        num_of_objs = obs_traj_rel.shape[1]
+        V_pred,V_tr =  V_pred[:,:num_of_objs,:],V_tr[:,:num_of_objs,:]
+        #print(V_pred.shape)
+
+        #For now I have my bi-variate parameters 
+        #normx =  V_pred[:,:,0:1]
+        #normy =  V_pred[:,:,1:2]
+        sx = torch.exp(V_pred[:,:,2]) #sx
+        sy = torch.exp(V_pred[:,:,3]) #sy
+        corr = torch.tanh(V_pred[:,:,4]) #corr
         
-    def curr_ped_callback(self, msg):
-        data_array = np.array(msg.data, dtype=np.dtype(msg.dtype)).reshape(msg.shape)
-        self.add_data(data_array)
+        cov = torch.zeros(V_pred.shape[0],V_pred.shape[1],2,2).to(device)
+        cov[:,:,0,0]= sx*sx
+        cov[:,:,0,1]= corr*sx*sy
+        cov[:,:,1,0]= corr*sx*sy
+        cov[:,:,1,1]= sy*sy
+        mean = V_pred[:,:,0:2]
+        
+        mvnormal = torchdist.MultivariateNormal(mean,cov)
 
-    def add_data(self, data_array_):
-        with open(self.dataset_dir + self.tag + '.txt', 'a') as f:
-            for data in data_array_:
-                f.write(f'{data[0]}\t{data[1]}\t{data[2]}\t{data[3]}\n')
-                # print(f'{data[0]}\t{data[1]}\t{data[2]}\t{data[3]}\n')
-            try:
-                print(f'Written! frame: {data[0]}')
-            except:
-                print('No pedestrians in this frame')
 
-def main():
-    node = MakeDataset()
-    rospy.spin()
+        ### Rel to abs 
+        ##obs_traj.shape = torch.Size([1, 6, 2, 8]) Batch, Ped ID, x|y, Seq Len 
+        
+        #Now sample 20 samples
+        ade_ls = {}
+        fde_ls = {}
+        V_x = seq_to_nodes(obs_traj.data.cpu().numpy().copy())
+        V_x_rel_to_abs = nodes_rel_to_nodes_abs(V_obs.data.cpu().numpy().squeeze().copy(),
+                                                 V_x[0,:,:].copy())
 
-if __name__ == '__main__':
-    main()
+        V_y = seq_to_nodes(pred_traj_gt.data.cpu().numpy().copy())
+        V_y_rel_to_abs = nodes_rel_to_nodes_abs(V_tr.data.cpu().numpy().squeeze().copy(),
+                                                 V_x[-1,:,:].copy())
+        
+        raw_data_dict[step] = {}
+        raw_data_dict[step]['obs'] = copy.deepcopy(V_x_rel_to_abs)
+        raw_data_dict[step]['trgt'] = copy.deepcopy(V_y_rel_to_abs)
+        raw_data_dict[step]['pred'] = []
+
+        for n in range(num_of_objs):
+            ade_ls[n]=[]
+            fde_ls[n]=[]
+
+        for k in range(KSTEPS):
+
+            V_pred = mvnormal.sample()
+
+
+
+            #V_pred = seq_to_nodes(pred_traj_gt.data.numpy().copy())
+            V_pred_rel_to_abs = nodes_rel_to_nodes_abs(V_pred.data.cpu().numpy().squeeze().copy(),
+                                                     V_x[-1,:,:].copy())
+            raw_data_dict[step]['pred'].append(copy.deepcopy(V_pred_rel_to_abs))
+            
+           # print(V_pred_rel_to_abs.shape) #(12, 3, 2) = seq, ped, location
+            for n in range(num_of_objs):
+                pred = [] 
+                target = []
+                obsrvs = [] 
+                number_of = []
+                pred.append(V_pred_rel_to_abs[:,n:n+1,:])
+                target.append(V_y_rel_to_abs[:,n:n+1,:])
+                obsrvs.append(V_x_rel_to_abs[:,n:n+1,:])
+                number_of.append(1)
+
+                ade_ls[n].append(ade(pred,target,number_of))
+                fde_ls[n].append(fde(pred,target,number_of))
+        
+        for n in range(num_of_objs):
+            ade_bigls.append(min(ade_ls[n]))
+            fde_bigls.append(min(fde_ls[n]))
+
+    ade_ = sum(ade_bigls)/len(ade_bigls)
+    fde_ = sum(fde_bigls)/len(fde_bigls)
+    return ade_,fde_,raw_data_dict
+
+
+
+
+print("*"*50)
+print('Number of samples:',KSTEPS)
+print("*"*50)
+
+
+
+
+for feta in range(len(paths)):
+    ade_ls = [] 
+    fde_ls = [] 
+    path = paths[feta]
+    exps = glob.glob(path)
+    print('Model being tested are:',exps)
+
+    for exp_path in exps:
+        print("*"*50)
+        print("Evaluating model:",exp_path)
+
+        model_path = exp_path+'/val_best.pth'
+        args_path = exp_path+'/args.pkl'
+        with open(args_path,'rb') as f: 
+            args = pickle.load(f)
+
+        stats= exp_path+'/constant_metrics.pkl'
+        with open(stats,'rb') as f: 
+            cm = pickle.load(f)
+        print("Stats:",cm)
+
+
+
+        #Data prep     
+        obs_seq_len = args.obs_seq_len
+        pred_seq_len = args.pred_seq_len
+        # data_set = './datasets/'+args.dataset+'/'
+
+        dset_test = TrajectoryDataset(
+                # data_set+'test/',
+                dataset_dir,
+                obs_len=obs_seq_len,
+                pred_len=pred_seq_len,
+                skip=1,norm_lap_matr=True)
+
+        loader_test = DataLoader(
+                dset_test,
+                batch_size=1,#This is irrelative to the args batch size parameter
+                shuffle =False,
+                num_workers=1)
+
+
+
+        #Defining the model
+        model = GAT_TimeSeriesLayer(in_features=2, hidden_features=16, out_features=5, obs_seq_len=8, pred_seq_len=12, num_heads=2).to(device)
+        model.load_state_dict(torch.load(model_path, map_location=device))
+
+
+        ade_ =999999
+        fde_ =999999
+        print("Testing ....")
+        ad,fd,raw_data_dic_= test()
+        ade_= min(ade_,ad)
+        fde_ =min(fde_,fd)
+        ade_ls.append(ade_)
+        fde_ls.append(fde_)
+        print("ADE:",ade_," FDE:",fde_)
+
+
+
+
+    print("*"*50)
+
+    print("Avg ADE:",sum(ade_ls)/len(exps))
+    print("Avg FDE:",sum(fde_ls)/len(exps))
+    print(f'Number of Models: {len(exps)}')
