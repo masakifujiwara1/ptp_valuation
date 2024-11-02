@@ -24,7 +24,7 @@ dataset_dir = pkg_path + '/datasets/'
 model_path = roslib.packages.get_pkg_dir('ptp_ros1')
 model_dir = model_path + '/checkpoint/'
 
-paths = [model_dir + '*social-stgcnn-eth']
+paths = [model_dir + '*deploy-raw*']
 KSTEPS=20
 
 device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
@@ -214,5 +214,6 @@ for feta in range(len(paths)):
 
     print("*"*50)
 
-    print("Avg ADE:",sum(ade_ls)/5)
-    print("Avg FDE:",sum(fde_ls)/5)
+    print("Avg ADE:",sum(ade_ls)/len(exps))
+    print("Avg FDE:",sum(fde_ls)/len(exps))
+    print(f'Number of Models: {len(exps)}')
