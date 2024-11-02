@@ -150,6 +150,10 @@ class TrajectoryDataset(Dataset):
                         continue
                     curr_ped_seq = np.transpose(curr_ped_seq[:, 2:])
                     curr_ped_seq = curr_ped_seq
+
+                    if curr_ped_seq.shape[1] != self.seq_len:
+                        continue
+
                     # Make coordinates relative
                     rel_curr_ped_seq = np.zeros(curr_ped_seq.shape)
                     rel_curr_ped_seq[:, 1:] = \
