@@ -14,6 +14,7 @@ from utils import *
 from metrics import * 
 from model_depth_fc_fix import GAT_TimeSeriesLayer
 import copy
+import rospy
 
 import roslib
 roslib.load_manifest('ptp_ros1')
@@ -28,6 +29,8 @@ paths = [model_dir + '*deploy-raw*']
 KSTEPS=20
 
 device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+
+is_robot_in_data = False
 
 def test(KSTEPS=20):
     global loader_test,model
@@ -105,6 +108,8 @@ def test(KSTEPS=20):
         raw_data_dict[step]['pred'] = []
 
         for n in range(num_of_objs):
+            if is_robot_in_data and n==0:
+                continue
             ade_ls[n]=[]
             fde_ls[n]=[]
 
@@ -121,6 +126,8 @@ def test(KSTEPS=20):
             
            # print(V_pred_rel_to_abs.shape) #(12, 3, 2) = seq, ped, location
             for n in range(num_of_objs):
+                if is_robot_in_data and n==0:
+                    continue
                 pred = [] 
                 target = []
                 obsrvs = [] 
@@ -134,6 +141,8 @@ def test(KSTEPS=20):
                 fde_ls[n].append(fde(pred,target,number_of))
         
         for n in range(num_of_objs):
+            if is_robot_in_data and n==0:
+                continue
             ade_bigls.append(min(ade_ls[n]))
             fde_bigls.append(min(fde_ls[n]))
 
