@@ -20,17 +20,17 @@ import roslib
 roslib.load_manifest('ptp_ros1')
 
 pkg_path = roslib.packages.get_pkg_dir('ptp_make_dataset')
-dataset_dir = pkg_path + '/datasets/'
+dataset_dir = pkg_path + '/datasets/All-with-robot/'
 
 model_path = roslib.packages.get_pkg_dir('ptp_ros1')
 model_dir = model_path + '/checkpoint/'
 
-paths = [model_dir + '*deploy-raw*']
+paths = [model_dir + '*ptp*']
 KSTEPS=20
 
 device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
 
-is_robot_in_data = False
+is_robot_in_data = True
 
 def test(KSTEPS=20):
     global loader_test,model
@@ -108,8 +108,8 @@ def test(KSTEPS=20):
         raw_data_dict[step]['pred'] = []
 
         for n in range(num_of_objs):
-            if is_robot_in_data and n==0:
-                continue
+            # if is_robot_in_data and n==0:
+            #     continue
             ade_ls[n]=[]
             fde_ls[n]=[]
 
@@ -126,8 +126,8 @@ def test(KSTEPS=20):
             
            # print(V_pred_rel_to_abs.shape) #(12, 3, 2) = seq, ped, location
             for n in range(num_of_objs):
-                if is_robot_in_data and n==0:
-                    continue
+                # if is_robot_in_data and n==0:
+                #     continue
                 pred = [] 
                 target = []
                 obsrvs = [] 
@@ -141,8 +141,8 @@ def test(KSTEPS=20):
                 fde_ls[n].append(fde(pred,target,number_of))
         
         for n in range(num_of_objs):
-            if is_robot_in_data and n==0:
-                continue
+            # if is_robot_in_data and n==0:
+            #     continue
             ade_bigls.append(min(ade_ls[n]))
             fde_bigls.append(min(fde_ls[n]))
 
@@ -193,7 +193,7 @@ for feta in range(len(paths)):
                 dataset_dir,
                 obs_len=obs_seq_len,
                 pred_len=pred_seq_len,
-                skip=1,norm_lap_matr=True)
+                skip=1,norm_lap_matr=True,is_robot_in_data=is_robot_in_data)
 
         loader_test = DataLoader(
                 dset_test,

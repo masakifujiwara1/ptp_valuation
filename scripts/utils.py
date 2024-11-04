@@ -88,7 +88,7 @@ class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
     def __init__(
         self, data_dir, obs_len=8, pred_len=8, skip=1, threshold=0.002,
-        min_ped=1, delim='\t',norm_lap_matr = True):
+        min_ped=1, delim='\t',norm_lap_matr = True, is_robot_in_data = False):
         """
         Args:
         - data_dir: Directory containing dataset files in the format
@@ -141,6 +141,8 @@ class TrajectoryDataset(Dataset):
                 num_peds_considered = 0
                 _non_linear_ped = []
                 for _, ped_id in enumerate(peds_in_curr_seq):
+                    if (not is_robot_in_data) and ped_id == 0.0:
+                        continue
                     curr_ped_seq = curr_seq_data[curr_seq_data[:, 1] ==
                                                  ped_id, :]
                     curr_ped_seq = np.around(curr_ped_seq, decimals=4)
@@ -156,6 +158,10 @@ class TrajectoryDataset(Dataset):
 
                     # Make coordinates relative
                     rel_curr_ped_seq = np.zeros(curr_ped_seq.shape)
+
+                    if np.isnan(curr_ped_seq).any() or np.isinf(curr_ped_seq).any():
+                        continue
+
                     rel_curr_ped_seq[:, 1:] = \
                         curr_ped_seq[:, 1:] - curr_ped_seq[:, :-1]
                     _idx = num_peds_considered
