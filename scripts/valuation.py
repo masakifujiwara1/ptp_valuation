@@ -30,7 +30,7 @@ KSTEPS=20
 
 device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
 
-is_robot_in_data = True
+is_robot_in_data = False
 
 def test(KSTEPS=20):
     global loader_test,model
