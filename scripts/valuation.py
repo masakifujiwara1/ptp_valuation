@@ -26,11 +26,11 @@ model_path = roslib.packages.get_pkg_dir('ptp_ros1')
 model_dir = model_path + '/checkpoint/'
 
 paths = [model_dir + '*deploy*']
-KSTEPS=1
+KSTEPS=20
 
 device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
 
-is_robot_in_data = True
+is_robot_in_data = False
 
 def test(KSTEPS=KSTEPS):
     global loader_test,model
