@@ -20,19 +20,19 @@ import roslib
 roslib.load_manifest('ptp_ros1')
 
 pkg_path = roslib.packages.get_pkg_dir('ptp_make_dataset')
-dataset_dir = pkg_path + '/datasets/All-with-robot/'
+dataset_dir = pkg_path + '/datasets/oculus_csv_only/'
 
 model_path = roslib.packages.get_pkg_dir('ptp_ros1')
 model_dir = model_path + '/checkpoint/'
 
-paths = [model_dir + '*ptp*']
-KSTEPS=20
+paths = [model_dir + '*deploy*']
+KSTEPS=1
 
 device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
 
-is_robot_in_data = False
+is_robot_in_data = True
 
-def test(KSTEPS=20):
+def test(KSTEPS=KSTEPS):
     global loader_test,model
     model.eval()
     ade_bigls = []
@@ -46,6 +46,8 @@ def test(KSTEPS=20):
         obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,\
          loss_mask,V_obs,A_obs,V_tr,A_tr = batch
 
+
+        # obs_traj = obs_traj.unsqueeze(0)
 
         num_of_objs = obs_traj_rel.shape[1]
 
@@ -64,9 +66,9 @@ def test(KSTEPS=20):
         # V_pred= torch.rand_like(V_tr).cuda()
 
 
-        V_tr = V_tr.squeeze()
-        A_tr = A_tr.squeeze()
-        V_pred = V_pred.squeeze()
+        V_tr = V_tr.squeeze(0)
+        A_tr = A_tr.squeeze(0)
+        V_pred = V_pred.squeeze(0)
         num_of_objs = obs_traj_rel.shape[1]
         V_pred,V_tr =  V_pred[:,:num_of_objs,:],V_tr[:,:num_of_objs,:]
         #print(V_pred.shape)
@@ -95,11 +97,12 @@ def test(KSTEPS=20):
         ade_ls = {}
         fde_ls = {}
         V_x = seq_to_nodes(obs_traj.data.cpu().numpy().copy())
-        V_x_rel_to_abs = nodes_rel_to_nodes_abs(V_obs.data.cpu().numpy().squeeze().copy(),
+        V_x_rel_to_abs = nodes_rel_to_nodes_abs(V_obs.data.cpu().numpy().squeeze(0).copy(),
                                                  V_x[0,:,:].copy())
 
+        # print(V_tr.shape)
         V_y = seq_to_nodes(pred_traj_gt.data.cpu().numpy().copy())
-        V_y_rel_to_abs = nodes_rel_to_nodes_abs(V_tr.data.cpu().numpy().squeeze().copy(),
+        V_y_rel_to_abs = nodes_rel_to_nodes_abs(V_tr.data.cpu().numpy().copy(),
                                                  V_x[-1,:,:].copy())
         
         raw_data_dict[step] = {}
@@ -108,8 +111,8 @@ def test(KSTEPS=20):
         raw_data_dict[step]['pred'] = []
 
         for n in range(num_of_objs):
-            # if is_robot_in_data and n==0:
-            #     continue
+            if is_robot_in_data and n==1:
+                continue
             ade_ls[n]=[]
             fde_ls[n]=[]
 
@@ -120,14 +123,14 @@ def test(KSTEPS=20):
 
 
             #V_pred = seq_to_nodes(pred_traj_gt.data.numpy().copy())
-            V_pred_rel_to_abs = nodes_rel_to_nodes_abs(V_pred.data.cpu().numpy().squeeze().copy(),
+            V_pred_rel_to_abs = nodes_rel_to_nodes_abs(V_pred.data.cpu().numpy().copy(),
                                                      V_x[-1,:,:].copy())
             raw_data_dict[step]['pred'].append(copy.deepcopy(V_pred_rel_to_abs))
             
            # print(V_pred_rel_to_abs.shape) #(12, 3, 2) = seq, ped, location
             for n in range(num_of_objs):
-                # if is_robot_in_data and n==0:
-                #     continue
+                if is_robot_in_data and n==1:
+                    continue
                 pred = [] 
                 target = []
                 obsrvs = [] 
@@ -141,8 +144,8 @@ def test(KSTEPS=20):
                 fde_ls[n].append(fde(pred,target,number_of))
         
         for n in range(num_of_objs):
-            # if is_robot_in_data and n==0:
-            #     continue
+            if is_robot_in_data and n==1:
+                continue
             ade_bigls.append(min(ade_ls[n]))
             fde_bigls.append(min(fde_ls[n]))
 

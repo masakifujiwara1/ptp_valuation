@@ -28,8 +28,9 @@ def anorm(p1,p2):
     return 1/(NORM)
                 
 def seq_to_graph(seq_,seq_rel,norm_lap_matr = True):
-    seq_ = seq_.squeeze()
-    seq_rel = seq_rel.squeeze()
+    # seq_ = seq_.squeeze()
+    # seq_rel = seq_rel.squeeze()
+    # print(seq_.shape)
     seq_len = seq_.shape[2]
     max_nodes = seq_.shape[0]
 
@@ -76,7 +77,10 @@ def read_file(_path, delim='\t'):
         delim = '\t'
     elif delim == 'space':
         delim = ' '
+    elif delim == 'comma':
+        delim = ','
     with open(_path, 'r') as f:
+        next(f)
         for line in f:
             line = line.strip().split(delim)
             line = [float(i) for i in line]
@@ -88,7 +92,7 @@ class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
     def __init__(
         self, data_dir, obs_len=8, pred_len=8, skip=1, threshold=0.002,
-        min_ped=1, delim='\t',norm_lap_matr = True, is_robot_in_data = False):
+        min_ped=0, delim=',',norm_lap_matr = True, is_robot_in_data = False):
         """
         Args:
         - data_dir: Directory containing dataset files in the format
@@ -141,7 +145,7 @@ class TrajectoryDataset(Dataset):
                 num_peds_considered = 0
                 _non_linear_ped = []
                 for _, ped_id in enumerate(peds_in_curr_seq):
-                    if (not is_robot_in_data) and ped_id == 0.0:
+                    if (not is_robot_in_data) and ped_id == 2:
                         continue
                     curr_ped_seq = curr_seq_data[curr_seq_data[:, 1] ==
                                                  ped_id, :]
@@ -173,6 +177,8 @@ class TrajectoryDataset(Dataset):
                     curr_loss_mask[_idx, pad_front:pad_end] = 1
                     num_peds_considered += 1
 
+                    # print(num_peds_considered)
+
                 if num_peds_considered > min_ped:
                     non_linear_ped += _non_linear_ped
                     num_peds_in_seq.append(num_peds_considered)
@@ -188,9 +194,9 @@ class TrajectoryDataset(Dataset):
 
         # Convert numpy -> Torch Tensor
         self.obs_traj = torch.from_numpy(
-            seq_list[:, :, :self.obs_len]).type(torch.float)
+            seq_list[:, :2, :self.obs_len]).type(torch.float)
         self.pred_traj = torch.from_numpy(
-            seq_list[:, :, self.obs_len:]).type(torch.float)
+            seq_list[:, :2, self.obs_len:]).type(torch.float)
         self.obs_traj_rel = torch.from_numpy(
             seq_list_rel[:, :, :self.obs_len]).type(torch.float)
         self.pred_traj_rel = torch.from_numpy(
@@ -202,6 +208,7 @@ class TrajectoryDataset(Dataset):
             (start, end)
             for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ]
+        # print(self.seq_start_end)
         #Convert to Graphs 
         self.v_obs = [] 
         self.A_obs = [] 

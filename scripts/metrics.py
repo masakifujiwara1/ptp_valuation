@@ -56,7 +56,7 @@ def fde(predAll,targetAll,count_):
 
 def seq_to_nodes(seq_):
     max_nodes = seq_.shape[1] #number of pedestrians in the graph
-    seq_ = seq_.squeeze()
+    seq_ = seq_.squeeze(0)
     seq_len = seq_.shape[2]
     
     V = np.zeros((seq_len,max_nodes,2))
@@ -65,7 +65,7 @@ def seq_to_nodes(seq_):
         for h in range(len(step_)): 
             V[s,h,:] = step_[h]
             
-    return V.squeeze()
+    return V
 
 def nodes_rel_to_nodes_abs(nodes,init_node):
     nodes_ = np.zeros_like(nodes)
@@ -73,7 +73,7 @@ def nodes_rel_to_nodes_abs(nodes,init_node):
         for ped in range(nodes.shape[1]):
             nodes_[s,ped,:] = np.sum(nodes[:s+1,ped,:],axis=0) + init_node[ped,:]
 
-    return nodes_.squeeze()
+    return nodes_
 
 def closer_to_zero(current,new_v):
     dec =  min([(abs(current),current),(abs(new_v),new_v)])[1]
